@@ -1,4 +1,4 @@
-"""FastAPI application that exposes technology news from DEV.to with OpenTelemetry tracing."""
+"""FastAPI application exposing DEV.to news with OpenTelemetry telemetry piped into MongoDB."""
 
 from __future__ import annotations
 
@@ -7,38 +7,33 @@ from typing import Any, Dict, List
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query
-from opentelemetry import trace
+from opentelemetry import metrics, trace
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+
+from app.telemetry import configure_telemetry
 
 logger = logging.getLogger(__name__)
 
 DEVTO_API_URL = "https://dev.to/api/articles"
 
 
-def _configure_tracer_provider() -> TracerProvider:
-    """Configure and return a global tracer provider."""
-    resource = Resource.create({
-        "service.name": "devto-news-service",
-        "service.version": "1.0.0",
-        "service.instance.id": "local-instance",
-    })
-
-    provider = TracerProvider(resource=resource)
-    processor = BatchSpanProcessor(ConsoleSpanExporter())
-    provider.add_span_processor(processor)
-    trace.set_tracer_provider(provider)
-    return provider
-
-
-tracer_provider = _configure_tracer_provider()
+tracer_provider, meter_provider = configure_telemetry()
 tracer = trace.get_tracer(__name__)
+meter = metrics.get_meter(__name__)
+
+request_counter = meter.create_counter(
+    name="devto.news.requests",
+    description="Number of calls to the /news endpoint",
+)
+
+article_counter = meter.create_counter(
+    name="devto.news.articles_returned",
+    description="Number of DEV.to articles returned to clients",
+)
 
 app = FastAPI(
     title="DEV.to Tech News API",
-    description="API backend that retrieves the latest technology news from DEV.to with OpenTelemetry tracing.",
+    description="API backend that retrieves the latest technology news from DEV.to with OpenTelemetry telemetry.",
     version="1.0.0",
 )
 
@@ -94,6 +89,8 @@ async def get_news(
     per_page: int = Query(5, ge=1, le=30, description="Number of articles to retrieve"),
 ) -> Dict[str, Any]:
     """Return recent technology news articles from DEV.to."""
+    request_counter.add(1, attributes={"tag": tag})
+
     try:
         articles = await _fetch_articles(tag=tag, per_page=per_page)
     except httpx.HTTPStatusError as exc:  # type: ignore[unreachable]
@@ -102,5 +99,7 @@ async def get_news(
     except httpx.RequestError as exc:
         logger.exception("Failed to communicate with DEV.to API: %s", exc)
         raise HTTPException(status_code=502, detail="Unable to reach DEV.to API") from exc
+
+    article_counter.add(len(articles), attributes={"tag": tag})
 
     return {"source": "DEV.to", "tag": tag, "count": len(articles), "articles": articles}

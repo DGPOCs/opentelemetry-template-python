@@ -1,0 +1,24 @@
+{
+  "name": "opentelemetry-template-python",
+  "build": {
+    "dockerfile": "../Dockerfile.devcontainer",
+    "context": ".."
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.formatting.provider": "black",
+        "editor.formatOnSave": true
+      },
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance"
+      ]
+    }
+  },
+  "runArgs": ["--env-file", ".env"],
+  "postCreateCommand": "pip install -r requirements.txt",
+  "forwardPorts": [8000],
+  "remoteUser": "vscode"
+}
