@@ -10,10 +10,10 @@ from typing import Dict, List, Optional, Sequence
 from opentelemetry import metrics, trace
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import (
-    ExportResult,
     MetricExporter,
     MetricsData,
     PeriodicExportingMetricReader,
+    MetricExportResult,  
 )
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
@@ -22,6 +22,10 @@ from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
 from pymongo.errors import PyMongoError
+from dotenv import load_dotenv
+
+# Cargar .env ANTES de cualquier uso de os.getenv o configure_telemetry
+load_dotenv(dotenv_path=os.getenv("ENV_FILE", ".env"), override=False)
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +97,11 @@ def _configure_logging(collection: Collection) -> None:
     handler = MongoLoggingHandler()
     handler.setLevel(getattr(logging, log_level, logging.INFO))
     logging.getLogger().addHandler(handler)
+
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.error").propagate = False
+    logging.getLogger("uvicorn.access").propagate = False
 
 
 def _serialize_attributes(attributes: Dict[str, object]) -> Dict[str, object]:
@@ -175,7 +184,12 @@ class MongoMetricExporter(MetricExporter):
         super().__init__()
         self._collection = collection
 
-    def export(self, metrics_data: MetricsData) -> ExportResult:  # noqa: D401
+    def export(
+        self,
+        metrics_data: MetricsData,
+        timeout_millis: float = 10_000,
+        **kwargs: object,
+    ) -> MetricExportResult:
         documents: List[Dict[str, object]] = []
 
         for resource_metrics in metrics_data.resource_metrics:
@@ -193,15 +207,10 @@ class MongoMetricExporter(MetricExporter):
                             "start_time_unix_nano": getattr(point, "start_time_unix_nano", None),
                             "attributes": _serialize_attributes(dict(getattr(point, "attributes", {}))),
                         }
-
                         for attr_name in ("value", "count", "sum", "min", "max", "last", "bucket_counts", "boundaries"):
                             if hasattr(point, attr_name):
                                 value = getattr(point, attr_name)
-                                if isinstance(value, (list, tuple)):
-                                    point_payload[attr_name] = list(value)
-                                else:
-                                    point_payload[attr_name] = value
-
+                                point_payload[attr_name] = list(value) if isinstance(value, (list, tuple)) else value
                         datapoints.append(point_payload)
 
                     documents.append(
@@ -216,15 +225,22 @@ class MongoMetricExporter(MetricExporter):
                     )
 
         if not documents:
-            return ExportResult.SUCCESS
+            return MetricExportResult.SUCCESS
 
         try:
             self._collection.insert_many(documents)
-        except PyMongoError as exc:  # pragma: no cover - defensive logging
+        except PyMongoError as exc:
             logger.exception("Failed to export metrics to MongoDB: %s", exc)
-            return ExportResult.FAILURE
+            return MetricExportResult.FAILURE
 
-        return ExportResult.SUCCESS
+        return MetricExportResult.SUCCESS
+
+    def force_flush(self, timeout_millis: float = 10_000) -> bool:
+        return True
+
+    def shutdown(self, timeout_millis: float = 30_000, **kwargs: object) -> None:
+        return None
+
 
 
 def configure_telemetry() -> tuple[TracerProvider, MeterProvider]:
