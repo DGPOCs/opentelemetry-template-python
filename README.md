@@ -21,6 +21,7 @@ Variables principales:
 - `MONGO_URI` o `MONGO_HOST`/`MONGO_PORT`/`MONGO_USERNAME`/`MONGO_PASSWORD`: parámetros de conexión a MongoDB.
 - `MONGO_DB_NAME`: base de datos utilizada para almacenar la telemetría.
 - `MONGO_LOG_COLLECTION`, `MONGO_TRACE_COLLECTION`, `MONGO_METRIC_COLLECTION`: colecciones donde se guardan logs, trazas y métricas.
+- `DEVTO_API_KEY`: clave privada utilizada para autenticar las peticiones contra la API de DEV.to.
 - `LOG_LEVEL`: nivel de logging de la aplicación.
 - `OTEL_SERVICE_*`: metadatos opcionales del servicio expuestos en la telemetría.
 

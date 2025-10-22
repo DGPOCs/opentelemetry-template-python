@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Dict, List
 
 import httpx
@@ -15,6 +16,7 @@ from app.telemetry import configure_telemetry
 logger = logging.getLogger(__name__)
 
 DEVTO_API_URL = "https://dev.to/api/articles"
+DEVTO_API_KEY = os.getenv("DEVTO_API_KEY")
 
 
 tracer_provider, meter_provider = configure_telemetry()
@@ -43,13 +45,19 @@ FastAPIInstrumentor.instrument_app(app, tracer_provider=tracer_provider)
 async def _fetch_articles(tag: str, per_page: int) -> List[Dict[str, Any]]:
     params = {"tag": tag, "per_page": per_page}
 
+    headers = {}
+    if DEVTO_API_KEY:
+        headers["api-key"] = DEVTO_API_KEY
+
     async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
         with tracer.start_as_current_span("devto.fetch_articles") as span:
             span.set_attribute("http.method", "GET")
             span.set_attribute("http.url", DEVTO_API_URL)
             span.set_attribute("devto.tag", tag)
             span.set_attribute("devto.per_page", per_page)
-            response = await client.get(DEVTO_API_URL, params=params)
+            if DEVTO_API_KEY:
+                span.set_attribute("devto.authenticated", True)
+            response = await client.get(DEVTO_API_URL, params=params, headers=headers or None)
             span.set_attribute("http.status_code", response.status_code)
             response.raise_for_status()
 
