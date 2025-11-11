@@ -1,4 +1,4 @@
-"""FastAPI application exposing DEV.to news with OpenTelemetry telemetry piped into MongoDB."""
+"""FastAPI application exposing DEV.to news with OpenTelemetry telemetry exported to an OTEL Collector."""
 
 from __future__ import annotations
 
